@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#b5701a">
+<title>Čárkovací počítadlo</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Čárkování">
+<style>:root{padding-top:env(safe-area-inset-top,0);padding-bottom:env(safe-area-inset-bottom,0)}html,body{margin:0}</style>
+</head>
+<body>
+<style>
+  /* Layout: vertical list of rows — tappable icon (+1) left, hand-drawn tally marks middle, minus + big number right, per-row edit panel */
+  :root {
+    --bg: #f6f1e7;
+    --surface: #fffdf8;
+    --surface-2: #efe7d8;
+    --fg: #241f1a;
+    --muted: #8a7d6a;
+    --line: #e0d4bf;
+    --ink: #2a2520;
+    --accent: #b5701a;
+    --accent-fg: #fff;
+    --danger: #b23a2e;
+    --shadow: 0 1px 2px rgba(60,45,20,.07), 0 7px 22px rgba(60,45,20,.07);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #17140f; --surface: #221d16; --surface-2: #2e281f; --fg: #efe7da;
+      --muted: #9d907a; --line: #342b1d; --ink: #efe7da; --accent: #d9902f;
+      --accent-fg: #17140f; --danger: #e06a5c;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 7px 22px rgba(0,0,0,.3);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #17140f; --surface: #221d16; --surface-2: #2e281f; --fg: #efe7da;
+    --muted: #9d907a; --line: #342b1d; --ink: #efe7da; --accent: #d9902f;
+    --accent-fg: #17140f; --danger: #e06a5c;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 7px 22px rgba(0,0,0,.3);
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+    margin: 0; -webkit-tap-highlight-color: transparent;
+  }
+  .wrap {
+    max-width: 560px; margin: 0 auto;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-bottom: 40px;
+  }
+
+  .top {
+    position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5;
+    background: var(--bg); padding-block: 16px 10px;
+    display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  }
+  body::before {
+    content: ""; position: fixed; inset: 0 0 auto;
+    height: env(safe-area-inset-top, 0px); background: var(--bg); z-index: 10;
+  }
+  .top h1 {
+    font-family: "Space Grotesk", system-ui, sans-serif;
+    font-size: 1.2rem; letter-spacing: -.01em; margin: 0; font-weight: 600;
+  }
+  .top .date { font-size: .78rem; color: var(--muted); }
+
+  ul.items { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+
+  .card {
+    position: relative;
+    display: grid;
+    grid-template-columns: 86px 1fr auto;
+    align-items: center;
+    gap: 8px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 10px 12px;
+    box-shadow: var(--shadow);
+  }
+
+  /* tappable icon = +1 */
+  .glyph {
+    appearance: none; border: 1px solid var(--line); background: var(--surface-2);
+    color: inherit; font: inherit; cursor: pointer;
+    border-radius: 13px; padding: 8px 4px;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    min-height: 74px; transition: transform .06s ease;
+  }
+  .glyph:active { transform: scale(.93); background: var(--accent); color: var(--accent-fg); }
+  .glyph:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .glyph .emoji { font-size: 1.9rem; line-height: 1; }
+  .glyph .name {
+    font-size: .68rem; font-weight: 700; letter-spacing: .03em; text-transform: uppercase;
+    text-align: center; max-width: 78px; overflow-wrap: anywhere;
+  }
+  .glyph .plus-hint { font-size: .62rem; opacity: .6; }
+
+  .tally { min-width: 0; display: flex; flex-wrap: wrap; align-content: center; gap: 8px 11px; padding: 2px 0; }
+  .tally svg { height: 28px; width: auto; display: block; }
+  .tally svg line { stroke: var(--ink); stroke-width: 2.6; stroke-linecap: round; }
+  .tally .none { color: var(--muted); font-size: .8rem; font-style: italic; }
+
+  .right { display: flex; align-items: center; gap: 6px; padding-right: 26px; }
+  .minus {
+    width: 38px; height: 38px; border-radius: 11px;
+    border: 1px solid var(--line); background: var(--surface-2); color: var(--fg);
+    font-size: 1.5rem; line-height: 1; cursor: pointer; display: grid; place-items: center;
+  }
+  .minus:active { background: var(--danger); color: #fff; border-color: var(--danger); }
+  .count {
+    font-family: "Space Grotesk", system-ui, sans-serif;
+    font-size: 2.3rem; font-weight: 700; line-height: .9;
+    font-variant-numeric: tabular-nums; min-width: 1.1em; text-align: right;
+  }
+  .card.zero .count { color: var(--muted); opacity: .45; }
+  .card.zero .minus { opacity: .4; }
+
+  /* edit toggle (⋯) top-right */
+  .edit-toggle {
+    position: absolute; top: 8px; right: 8px;
+    width: 28px; height: 28px; border-radius: 8px;
+    border: 1px solid transparent; background: transparent; color: var(--muted);
+    font-size: 1.1rem; line-height: 1; cursor: pointer; display: grid; place-items: center;
+  }
+  .edit-toggle:active, .edit-toggle.active { background: var(--surface-2); color: var(--fg); border-color: var(--line); }
+
+  /* edit panel */
+  .panel { grid-column: 1 / -1; display: none; flex-direction: column; gap: 8px; padding-top: 8px; margin-top: 4px; border-top: 1px dashed var(--line); }
+  .panel.open { display: flex; }
+  .panel .row1 { display: flex; gap: 8px; }
+  .panel input {
+    font: inherit; padding: 10px 12px; border: 1px solid var(--line);
+    border-radius: 10px; background: var(--bg); color: var(--fg); min-width: 0;
+  }
+  .panel input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .panel .rename { flex: 1 1 auto; }
+  .panel .setnum { flex: 0 0 74px; text-align: center; font-variant-numeric: tabular-nums; }
+  .panel .pbtn {
+    border: 1px solid var(--line); background: var(--surface-2); color: var(--fg);
+    border-radius: 10px; padding: 10px 14px; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  .panel .pbtn.del { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, var(--line)); }
+  .panel .pbtn:active { opacity: .7; }
+  .panel .row2 { display: flex; gap: 8px; justify-content: flex-end; }
+
+  .divider { border: none; border-top: 2px dashed var(--line); margin: 18px 4px 14px; }
+  .add-area { display: flex; flex-direction: column; gap: 10px; }
+  .add-btn {
+    width: 100%; border: 2px dashed var(--line); background: transparent; color: var(--fg);
+    border-radius: 14px; padding: 14px; font: inherit; font-weight: 600; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .add-btn:active { border-color: var(--accent); color: var(--accent); }
+  .add-btn .plus { font-size: 1.3rem; line-height: 1; }
+  .add-form { display: none; gap: 8px; }
+  .add-form.open { display: flex; }
+  .add-form input {
+    font: inherit; flex: 1 1 auto; min-width: 0; padding: 12px 14px;
+    border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--fg);
+  }
+  .add-form input.emoji { flex: 0 0 56px; text-align: center; font-size: 1.1rem; }
+  .add-form input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .add-form .ok { flex: 0 0 auto; border: none; background: var(--fg); color: var(--bg); border-radius: 12px; padding: 0 18px; font-weight: 700; cursor: pointer; }
+
+  .foot { margin-top: 20px; display: flex; gap: 8px; justify-content: space-between; align-items: center; }
+  .btn-ghost { border: 1px solid var(--line); background: transparent; color: var(--muted); border-radius: 10px; padding: 9px 14px; font: inherit; font-size: .85rem; cursor: pointer; }
+  .btn-ghost.reset { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, var(--line)); }
+  .btn-ghost:active { opacity: .7; }
+  .hint { font-size: .74rem; color: var(--muted); margin-top: 16px; text-align: center; line-height: 1.5; }
+  .sig {
+    margin-top: 22px; padding-top: 16px;
+    border-top: 1px solid var(--line);
+    text-align: center; line-height: 1.4;
+  }
+  .sig .by { font-size: .7rem; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); }
+  .sig .who {
+    font-family: "Space Grotesk", system-ui, sans-serif;
+    font-size: 1rem; font-weight: 700; letter-spacing: .02em; color: var(--accent);
+    margin-top: 2px;
+  }
+</style>
+
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap">
+
+<div class="wrap">
+  <div class="top">
+    <h1>🍺 Čárkování</h1>
+    <span class="date" id="date"></span>
+  </div>
+
+  <ul class="items" id="list"></ul>
+
+  <hr class="divider">
+
+  <div class="add-area">
+    <button class="add-btn" id="addBtn"><span class="plus">＋</span> Přidat položku</button>
+    <div class="add-form" id="addForm">
+      <input class="emoji" id="fEmoji" type="text" placeholder="🍹" maxlength="2" autocomplete="off">
+      <input id="fName" type="text" placeholder="Název (např. Becherovka)" autocomplete="off">
+      <button class="ok" id="fOk">OK</button>
+    </div>
+  </div>
+
+  <div class="foot">
+    <button class="btn-ghost" id="theme">🌓 Motiv</button>
+    <button class="btn-ghost reset" id="reset">Vynulovat vše</button>
+  </div>
+
+  <footer class="sig">
+    <div class="by">Created by</div>
+    <div class="who">L0ckSm1thV</div>
+  </footer>
+</div>
+
+<script>
+  "use strict";
+
+  var DEFAULTS = [
+    { id: "pivo",  emoji: "🍺", name: "Pivo" },
+    { id: "vino",  emoji: "🍷", name: "Víno" },
+    { id: "panak", emoji: "🥃", name: "Panák" },
+  ];
+  var REMOVED = ["kofola", "tycinky"];
+
+  var KEY = "carkovani-v1";
+  var state = load();
+  var editId = null;  // which row's edit panel is open
+
+  function load() {
+    try {
+      var raw = localStorage.getItem(KEY);
+      if (raw) {
+        var s = JSON.parse(raw);
+        if (s && Array.isArray(s.items)) {
+          s.items = s.items.filter(function (it) { return REMOVED.indexOf(it.id) === -1; });
+          return s;
+        }
+      }
+    } catch (e) {}
+    return { items: DEFAULTS.map(function (d) { return { id: d.id, emoji: d.emoji, name: d.name, qty: 0 }; }) };
+  }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+
+  function item(id) { return state.items.find(function (x) { return x.id === id; }); }
+  function bump(id, delta) {
+    var it = item(id); if (!it) return;
+    it.qty = Math.max(0, it.qty + delta);
+    save(); render();
+  }
+  function setQty(id, n) {
+    var it = item(id); if (!it) return;
+    n = Math.max(0, Math.floor(Number(n) || 0));
+    it.qty = n; save(); render();
+  }
+  function rename(id, name) {
+    var it = item(id); if (!it) return;
+    name = (name || "").trim(); if (name) it.name = name;
+    save();
+  }
+  function removeRow(id) {
+    state.items = state.items.filter(function (x) { return x.id !== id; });
+    if (editId === id) editId = null;
+    save(); render();
+  }
+
+  function tallyGroup(n) {
+    var xs = [4, 11, 18, 25], parts = "";
+    var verticals = Math.min(n, 4);
+    for (var i = 0; i < verticals; i++) parts += '<line x1="' + xs[i] + '" y1="3" x2="' + xs[i] + '" y2="27"/>';
+    if (n === 5) parts += '<line x1="1" y1="26" x2="30" y2="4"/>';
+    return '<svg viewBox="0 0 32 30" aria-hidden="true">' + parts + '</svg>';
+  }
+  function tallyMarks(qty) {
+    if (qty <= 0) return '<span class="none">zatím nic</span>';
+    var html = "", left = qty;
+    while (left > 0) { var g = Math.min(5, left); html += tallyGroup(g); left -= g; }
+    return html;
+  }
+
+  function render() {
+    var list = document.getElementById("list");
+    list.innerHTML = "";
+    state.items.forEach(function (it) {
+      var li = document.createElement("li");
+      var card = document.createElement("div");
+      card.className = "card" + (it.qty === 0 ? " zero" : "");
+      var isEditing = editId === it.id;
+      card.innerHTML =
+        '<button class="glyph" aria-label="Přidat ' + "" + '">' +
+          '<span class="emoji">' + it.emoji + '</span>' +
+          '<span class="name"></span>' +
+          '<span class="plus-hint">+1</span>' +
+        '</button>' +
+        '<span class="tally">' + tallyMarks(it.qty) + '</span>' +
+        '<span class="right">' +
+          '<button class="minus" aria-label="Ubrat">−</button>' +
+          '<span class="count">' + it.qty + '</span>' +
+        '</span>' +
+        '<button class="edit-toggle' + (isEditing ? ' active' : '') + '" aria-label="Upravit řádek">⋯</button>' +
+        '<div class="panel' + (isEditing ? ' open' : '') + '">' +
+          '<div class="row1">' +
+            '<input class="rename" type="text" placeholder="Název" value="">' +
+            '<input class="setnum" type="number" inputmode="numeric" min="0" placeholder="počet" value="' + it.qty + '">' +
+            '<button class="pbtn save">Ulož</button>' +
+          '</div>' +
+          '<div class="row2">' +
+            '<button class="pbtn del">🗑 Smazat řádek</button>' +
+          '</div>' +
+        '</div>';
+
+      card.querySelector(".name").textContent = it.name;
+      card.querySelector(".glyph").setAttribute("aria-label", "Přidat " + it.name);
+      card.querySelector(".glyph").addEventListener("click", function () { bump(it.id, 1); });
+      card.querySelector(".minus").addEventListener("click", function () { bump(it.id, -1); });
+
+      var toggle = card.querySelector(".edit-toggle");
+      toggle.addEventListener("click", function () {
+        editId = isEditing ? null : it.id;
+        render();
+      });
+
+      if (isEditing) {
+        var renameIn = card.querySelector(".rename");
+        var setnumIn = card.querySelector(".setnum");
+        renameIn.value = it.name;
+        card.querySelector(".save").addEventListener("click", function () {
+          rename(it.id, renameIn.value);
+          setQty(it.id, setnumIn.value);
+          editId = null; render();
+        });
+        card.querySelector(".del").addEventListener("click", function () { removeRow(it.id); });
+      }
+
+      li.appendChild(card);
+      list.appendChild(li);
+    });
+  }
+
+  // Add new item
+  var addBtn = document.getElementById("addBtn");
+  var addForm = document.getElementById("addForm");
+  var fName = document.getElementById("fName");
+  var fEmoji = document.getElementById("fEmoji");
+  addBtn.addEventListener("click", function () {
+    addForm.classList.toggle("open");
+    if (addForm.classList.contains("open")) fName.focus();
+  });
+  function doAdd() {
+    var n = fName.value.trim(); if (!n) return;
+    state.items.push({ id: "c" + Date.now(), emoji: (fEmoji.value.trim() || "🍹"), name: n, qty: 1 });
+    save(); render();
+    fName.value = ""; fEmoji.value = "";
+    addForm.classList.remove("open");
+  }
+  document.getElementById("fOk").addEventListener("click", doAdd);
+  fName.addEventListener("keydown", function (e) { if (e.key === "Enter") doAdd(); });
+
+  // Reset
+  document.getElementById("reset").addEventListener("click", function () {
+    var self = this;
+    if (self.dataset.armed) {
+      state.items.forEach(function (it) { it.qty = 0; });
+      save(); render();
+      self.textContent = "Vynulovat vše"; delete self.dataset.armed;
+    } else {
+      self.textContent = "Opravdu vynulovat?";
+      self.dataset.armed = "1";
+      setTimeout(function () { self.textContent = "Vynulovat vše"; delete self.dataset.armed; }, 2500);
+    }
+  });
+
+  // Theme
+  var themeBtn = document.getElementById("theme");
+  try { var saved = localStorage.getItem(KEY + "-theme"); if (saved) document.documentElement.setAttribute("data-theme", saved); } catch (e) {}
+  themeBtn.addEventListener("click", function () {
+    var root = document.documentElement;
+    var cur = root.getAttribute("data-theme");
+    var isDark = cur ? cur === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    var next = isDark ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    try { localStorage.setItem(KEY + "-theme", next); } catch (e) {}
+  });
+
+  try { document.getElementById("date").textContent = new Date().toLocaleDateString("cs-CZ", { day: "numeric", month: "long" }); } catch (e) {}
+
+  render();
+
+  // Service worker — jen přes http(s), na file:// se přeskočí
+  if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+    window.addEventListener("load", function () {
+      navigator.serviceWorker.register("sw.js").catch(function () {});
+    });
+  }
+</script>
+
+</body>
+</html>
