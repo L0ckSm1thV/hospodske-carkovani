@@ -3,6 +3,12 @@
 Jednoduchá webová appka (PWA) pro hospodu — **čárkování** vypitých drinků a snědeného jídla.
 Ťukneš na ikonu položky, přibude ručně kreslená čárka (卌) a zvýší se počet. Žádné peníze, jen počty kousků.
 
+## Náhled
+
+<p align="center">
+  <img src="docs/screenshot.png" alt="Čárkovací počítadlo — náhled appky" width="330">
+</p>
+
 ## Funkce
 - Čárkování po pěti jako na pivním tácku, vedle velké souhrnné číslo
 - Přidání položky (+1) ťuknutím na ikonu, tlačítko **−** ubere
